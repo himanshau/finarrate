@@ -19,6 +19,74 @@ DEFAULT_ALERT = "Review recent high-spend categories to avoid month-end cash str
 DEFAULT_ACTION = "Track weekly spending and reduce one non-essential category by 10%."
 
 
+def _is_investment_query(query: str) -> bool:
+    q = query.lower()
+    keywords = [
+        "invest",
+        "investment",
+        "sip",
+        "portfolio",
+        "return",
+        "high return",
+        "allocation",
+        "mutual fund",
+        "equity",
+        "debt",
+        "diversif",
+    ]
+    return any(k in q for k in keywords)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    t = text.lower()
+    patterns = [
+        "i'm sorry",
+        "i am sorry",
+        "i cannot provide",
+        "i can't provide",
+        "cannot assist",
+        "can't assist",
+        "unable to help",
+    ]
+    return any(p in t for p in patterns)
+
+
+def _safe_investment_answer(context: dict[str, Any]) -> str:
+    metrics = context.get("metrics", {})
+    planner = context.get("planner", {})
+
+    income = float(metrics.get("total_income", 0.0) or 0.0)
+    expenses = float(metrics.get("total_expenses", 0.0) or 0.0)
+    savings = max(income - expenses, 0.0)
+    savings_rate = float(metrics.get("savings_rate", 0.0) or 0.0)
+    emi_ratio = float(metrics.get("emi_to_income_ratio", 0.0) or 0.0)
+    sip_amount = float(planner.get("suggested_monthly_sip_like_amount", 0.0) or 0.0)
+    profile = str(planner.get("suitable_sip_style_for_current_portfolio", "Balanced"))
+
+    # Allocation bands are educational and profile-based, not product recommendations.
+    equity, debt, gold, liquid = 50, 30, 10, 10
+    if profile.lower().startswith("conservative") or savings_rate < 15 or emi_ratio > 25:
+        equity, debt, gold, liquid = 35, 40, 10, 15
+    elif profile.lower().startswith("growth") and savings_rate >= 25 and emi_ratio <= 20:
+        equity, debt, gold, liquid = 65, 20, 10, 5
+
+    return (
+        "You can improve investments by spreading monthly savings across multiple buckets instead of chasing a single high-return option. "
+        "I cannot identify guaranteed high-return assets, but I can suggest a safer allocation approach based on your current profile.\n\n"
+        f"Current context: savings rate {savings_rate:.2f}%, EMI ratio {emi_ratio:.2f}%, estimated monthly savings {savings:.2f}.\n"
+        f"Suggested monthly SIP-like amount: {sip_amount:.2f} ({profile} profile).\n\n"
+        "Suggested allocation split (educational):\n"
+        f"- Equity bucket: {equity}%\n"
+        f"- Debt/Fixed-income bucket: {debt}%\n"
+        f"- Gold/hedge bucket: {gold}%\n"
+        f"- Liquid/emergency bucket: {liquid}%\n\n"
+        "How to improve from here:\n"
+        "- Increase monthly investable amount gradually as savings rate crosses 20%.\n"
+        "- Keep emergency reserves strong before increasing risk.\n"
+        "- Rebalance every 6 months based on cash flow and EMI changes."
+    )
+
+
 def _build_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages(
         [
@@ -211,12 +279,16 @@ def generate_financial_story(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def answer_result_query(context: dict[str, Any], user_query: str) -> str:
+    if _is_investment_query(user_query):
+        return _safe_investment_answer(context)
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 "You are AI Money Mentor assistant. Answer the user question using only provided analysis context. "
-                "Use simple language, be concise, and avoid investment advice, specific fund names, and return promises. "
+                "Use simple language, be concise, and provide educational guidance only. "
+                "Do not recommend specific products/funds and do not promise high returns. "
                 "If answer is not in context, clearly say the data is not available.",
             ),
             (
@@ -234,4 +306,10 @@ def answer_result_query(context: dict[str, Any], user_query: str) -> str:
         }
     )
     content = response.content if isinstance(response.content, str) else json.dumps(response.content)
-    return content.strip()
+    cleaned = content.strip()
+    if _looks_like_refusal(cleaned):
+        return (
+            "I can help with a practical next-step plan from your current data, but I cannot provide guaranteed-return calls. "
+            "Try asking: 'How should I split my monthly savings across equity, debt, gold, and emergency fund?'"
+        )
+    return cleaned
