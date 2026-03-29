@@ -1,0 +1,68 @@
+flowchart LR
+    subgraph L1[Presentation Layer]
+        U[User Browser]
+        FE[frontend/app.py\nStreamlit UI]
+        U --> FE
+    end
+
+    subgraph L2[API Layer]
+        API[backend/main.py\nFastAPI Endpoints]
+    end
+
+    FE -->|/upload\n/analyze\n/generate-story\n/chat-insight| API
+
+    subgraph L3[Agent Orchestration Layer]
+        PIPE[backend/agents/pipeline.py\nAgent Orchestrator]
+        IA[backend/agents/input_agent.py\nInput Agent]
+        CA[backend/agents/categorization_agent.py\nCategorization Agent]
+        AA[backend/agents/analysis_agent.py\nAnalysis Agent]
+        PA[backend/agents/planning_agent.py\nPlanning Agent]
+        NA[backend/agents/narrative_agent.py\nNarrative Agent]
+
+        PIPE --> IA
+        PIPE --> CA
+        PIPE --> AA
+        PIPE --> PA
+        PIPE --> NA
+    end
+
+    API --> PIPE
+
+    subgraph L4[Core Service Layer]
+        PAR[backend/parser.py\nCSV/PDF Parser]
+        CAT[backend/categorizer.py\nKeyword Rules + ML]
+        AN[backend/analyzer.py\nFinancial Metrics Engine]
+        LLM[backend/llm_service.py\nLangGraph + LangChain + Ollama]
+        DB[backend/db.py\nSQLite Access Layer]
+    end
+
+    IA --> PAR
+    CA --> CAT
+    AA --> AN
+    NA --> LLM
+    API --> LLM
+    API --> DB
+
+    subgraph L5[Data Layer]
+        SQL[(data/finance.db)]
+        SCH[data/schema.sql]
+        D1[data/sample_transactions.csv]
+        D2[data/sample_transactions_complex.csv]
+    end
+
+    DB --> SQL
+    SCH -.schema.-> SQL
+    D1 --> FE
+    D2 --> FE
+
+    classDef ui fill:#E3F2FD,stroke:#1E88E5,color:#0D47A1;
+    classDef api fill:#E8F5E9,stroke:#43A047,color:#1B5E20;
+    classDef agent fill:#FFF8E1,stroke:#FB8C00,color:#E65100;
+    classDef core fill:#F3E5F5,stroke:#8E24AA,color:#4A148C;
+    classDef data fill:#EDE7F6,stroke:#5E35B1,color:#311B92;
+
+    class U,FE ui;
+    class API api;
+    class PIPE,IA,CA,AA,PA,NA agent;
+    class PAR,CAT,AN,LLM,DB core;
+    class SQL,SCH,D1,D2 data;
